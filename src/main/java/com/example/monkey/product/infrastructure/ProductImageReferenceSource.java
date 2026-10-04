@@ -28,7 +28,10 @@ public class ProductImageReferenceSource implements StoredImageReferenceSource {
 
     @Override
     public boolean isUsed(String imagePath) {
-        return monkeyRepository.countByImageUrl(imagePath) > 0;
+        return imagePath != null
+                && !imagePath.isBlank()
+                && (monkeyRepository.countByImageUrl(imagePath.trim()) > 0
+                        || monkeyRepository.countByImageUrlStartingWith(imagePath.trim() + "@") > 0);
     }
 
     @Override

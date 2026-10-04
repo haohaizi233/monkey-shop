@@ -28,7 +28,15 @@ public class OrderImageReferenceSource implements StoredImageReferenceSource {
 
     @Override
     public boolean isUsed(String imagePath) {
-        return orderRepository.countByProductImage(imagePath) > 0 || orderRepository.countByBuyerAvatar(imagePath) > 0;
+        if (imagePath == null || imagePath.isBlank()) {
+            return false;
+        }
+        String canonicalPath = imagePath.trim();
+        String variantPrefix = canonicalPath + "@";
+        return orderRepository.countByProductImage(canonicalPath) > 0
+                || orderRepository.countByProductImageStartingWith(variantPrefix) > 0
+                || orderRepository.countByBuyerAvatar(canonicalPath) > 0
+                || orderRepository.countByBuyerAvatarStartingWith(variantPrefix) > 0;
     }
 
     @Override

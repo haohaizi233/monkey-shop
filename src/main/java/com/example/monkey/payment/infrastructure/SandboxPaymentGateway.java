@@ -9,7 +9,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 @Component
-@ConditionalOnProperty(name = "app.payment.gateway", havingValue = "sandbox", matchIfMissing = true)
+@ConditionalOnProperty(name = "app.payment.gateway", havingValue = "sandbox", matchIfMissing = false)
 public class SandboxPaymentGateway implements PaymentGateway {
 
     @Override
