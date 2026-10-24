@@ -202,15 +202,15 @@ public class JpaInventoryStore implements InventoryStore {
                 stock.getVersion() == null ? 0L : stock.getVersion());
     }
 
-    private static boolean canTransition(
-            InventoryReservationStatus current, InventoryReservationStatus next) {
+    private static boolean canTransition(InventoryReservationStatus current, InventoryReservationStatus next) {
         if (current == next) {
             return true;
         }
         return switch (current) {
-            case RESERVED -> next == InventoryReservationStatus.RELEASED
-                    || next == InventoryReservationStatus.EXPIRED
-                    || next == InventoryReservationStatus.DEDUCTED;
+            case RESERVED ->
+                next == InventoryReservationStatus.RELEASED
+                        || next == InventoryReservationStatus.EXPIRED
+                        || next == InventoryReservationStatus.DEDUCTED;
             case EXPIRED, RELEASED -> next == InventoryReservationStatus.RESERVED;
             case DEDUCTED -> false;
         };

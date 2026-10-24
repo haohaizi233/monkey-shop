@@ -121,7 +121,8 @@ public class InventoryApplicationService implements InventoryReservationLifecycl
             }
             if (!existing.get().holdReleased()) {
                 throw new BusinessException(
-                        ErrorCode.CONFLICT, "Reservation cannot be renewed from " + existing.get().status());
+                        ErrorCode.CONFLICT,
+                        "Reservation cannot be renewed from " + existing.get().status());
             }
             return lockManager.withStockLock(
                     existing.get().skuId(),
@@ -216,8 +217,7 @@ public class InventoryApplicationService implements InventoryReservationLifecycl
             throw new BusinessException(ErrorCode.CONFLICT, "Reservation was already deducted");
         }
         if (!current.holdReleased()) {
-            throw new BusinessException(
-                    ErrorCode.CONFLICT, "Reservation cannot be renewed from " + current.status());
+            throw new BusinessException(ErrorCode.CONFLICT, "Reservation cannot be renewed from " + current.status());
         }
         InventoryReservation renewed = reacquire(current);
         return toReservationResponse(renewed, findStock(renewed.skuId(), renewed.warehouseId()));
@@ -237,8 +237,7 @@ public class InventoryApplicationService implements InventoryReservationLifecycl
             return toReservationResponse(savedReservation, savedStock);
         }
         if (!current.holdReleased()) {
-            throw new BusinessException(
-                    ErrorCode.CONFLICT, "Reservation cannot be deducted from " + current.status());
+            throw new BusinessException(ErrorCode.CONFLICT, "Reservation cannot be deducted from " + current.status());
         }
         return reacquireAndDeduct(current);
     }

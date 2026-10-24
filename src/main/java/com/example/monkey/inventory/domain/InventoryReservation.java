@@ -111,8 +111,7 @@ public record InventoryReservation(
     }
 
     public boolean holdReleased() {
-        return InventoryReservationStatus.EXPIRED.equals(status)
-                || InventoryReservationStatus.RELEASED.equals(status);
+        return InventoryReservationStatus.EXPIRED.equals(status) || InventoryReservationStatus.RELEASED.equals(status);
     }
 
     /** Puts a released hold back into RESERVED after stock has been locked again. */

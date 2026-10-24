@@ -409,8 +409,7 @@ class InventoryApplicationServiceTest {
         InMemoryInventoryStore store = new InMemoryInventoryStore(
                 new WarehouseStock(101L, 2200000000001L, "BJ-01", "CN-BJ", 2, 0, 0, 0, 1, 0));
         InventoryApplicationService service = service(store, Duration.ZERO);
-        InventoryReserveRequestDto request =
-                new InventoryReserveRequestDto(101L, 2200000000001L, null, 1L, 1, "again");
+        InventoryReserveRequestDto request = new InventoryReserveRequestDto(101L, 2200000000001L, null, 1L, 1, "again");
 
         service.reserve(request);
         service.releaseExpiredReservations();
