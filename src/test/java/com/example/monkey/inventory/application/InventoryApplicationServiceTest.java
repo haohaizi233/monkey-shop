@@ -404,6 +404,62 @@ class InventoryApplicationServiceTest {
         assertThat(store.reservation("expires").status()).isEqualTo(InventoryReservationStatus.EXPIRED);
     }
 
+    @Test
+    void releasedReservationCanBeReservedAgainWhenStockRemains() {
+        InMemoryInventoryStore store = new InMemoryInventoryStore(
+                new WarehouseStock(101L, 2200000000001L, "BJ-01", "CN-BJ", 2, 0, 0, 0, 1, 0));
+        InventoryApplicationService service = service(store, Duration.ZERO);
+        InventoryReserveRequestDto request =
+                new InventoryReserveRequestDto(101L, 2200000000001L, null, 1L, 1, "again");
+
+        service.reserve(request);
+        service.releaseExpiredReservations();
+        var renewed = service.reserve(request);
+
+        WarehouseStock stock = store.stock(101L, 2200000000001L);
+        assertThat(renewed.status()).isEqualTo(InventoryReservationStatus.RESERVED);
+        assertThat(stock.availableQuantity()).isEqualTo(1);
+        assertThat(stock.lockedQuantity()).isEqualTo(1);
+        assertThat(store.ledgerCount(InventoryOperation.RESERVE)).isEqualTo(2);
+    }
+
+    @Test
+    void paymentCanDeductStockAfterTheHoldWasReleased() {
+        InMemoryInventoryStore store = new InMemoryInventoryStore(
+                new WarehouseStock(101L, 2200000000001L, "BJ-01", "CN-BJ", 2, 0, 0, 0, 1, 0));
+        InventoryApplicationService service = service(store, Duration.ZERO);
+
+        service.reserve(new InventoryReserveRequestDto(101L, 2200000000001L, null, 1L, 1, "pay-later"));
+        service.releaseExpiredReservations();
+        var deducted = service.deduct("pay-later");
+
+        WarehouseStock stock = store.stock(101L, 2200000000001L);
+        assertThat(deducted.status()).isEqualTo(InventoryReservationStatus.DEDUCTED);
+        assertThat(stock.availableQuantity()).isEqualTo(1);
+        assertThat(stock.lockedQuantity()).isZero();
+        assertThat(stock.deductedQuantity()).isEqualTo(1);
+        assertThat(store.ledgerCount(InventoryOperation.DEDUCT)).isOne();
+    }
+
+    @Test
+    void releasedReservationDoesNotTakeStockThatAnotherBuyerAlreadyHolds() {
+        InMemoryInventoryStore store = new InMemoryInventoryStore(
+                new WarehouseStock(101L, 2200000000001L, "BJ-01", "CN-BJ", 1, 0, 0, 0, 0, 0));
+        InventoryApplicationService service = service(store, Duration.ZERO);
+
+        service.reserve(new InventoryReserveRequestDto(101L, 2200000000001L, null, 1L, 1, "first"));
+        service.releaseExpiredReservations();
+        service.reserve(new InventoryReserveRequestDto(101L, 2200000000001L, null, 2L, 1, "second"));
+
+        assertThatThrownBy(() -> service.deduct("first"))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        exception -> assertThat(exception.errorCode()).isEqualTo(ErrorCode.OUT_OF_STOCK));
+        assertThat(store.reservation("first").status()).isEqualTo(InventoryReservationStatus.EXPIRED);
+        assertThat(store.stock(101L, 2200000000001L).lockedQuantity()).isEqualTo(1);
+        assertThat(store.stock(101L, 2200000000001L).availableQuantity()).isZero();
+    }
+
     private static InventoryApplicationService service(InMemoryInventoryStore store, Duration ttl) {
         return service(store, mock(AuditService.class), ttl);
     }

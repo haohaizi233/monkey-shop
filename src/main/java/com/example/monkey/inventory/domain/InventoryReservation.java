@@ -110,6 +110,31 @@ public record InventoryReservation(
         return withStatus(InventoryReservationStatus.EXPIRED);
     }
 
+    public boolean holdReleased() {
+        return InventoryReservationStatus.EXPIRED.equals(status)
+                || InventoryReservationStatus.RELEASED.equals(status);
+    }
+
+    /** Puts a released hold back into RESERVED after stock has been locked again. */
+    public InventoryReservation renew(LocalDateTime expiresAt) {
+        if (!holdReleased()) {
+            throw new IllegalStateException("Cannot renew reservation in status " + status);
+        }
+        if (expiresAt == null) {
+            throw new IllegalArgumentException("reservation expiry is required");
+        }
+        return new InventoryReservation(
+                id,
+                reservationKey,
+                requestFingerprint,
+                skuId,
+                warehouseId,
+                orderId,
+                quantity,
+                InventoryReservationStatus.RESERVED,
+                expiresAt);
+    }
+
     private InventoryReservation withStatus(InventoryReservationStatus nextStatus) {
         return new InventoryReservation(
                 id, reservationKey, requestFingerprint, skuId, warehouseId, orderId, quantity, nextStatus, expiresAt);
