@@ -118,9 +118,7 @@ public class JpaInventoryStore implements InventoryStore {
         entity.setSkuId(reservation.skuId());
         entity.setWarehouseId(reservation.warehouseId());
         entity.setOrderId(reservation.orderId());
-        if (entity.getStatus() != null
-                && entity.getStatus() != reservation.status()
-                && entity.getStatus() != InventoryReservationStatus.RESERVED) {
+        if (entity.getStatus() != null && !canTransition(entity.getStatus(), reservation.status())) {
             throw new BusinessException(ErrorCode.CONFLICT, "Inventory reservation changed concurrently");
         }
         entity.setQuantity(reservation.quantity());
@@ -202,6 +200,20 @@ public class JpaInventoryStore implements InventoryStore {
                 stock.getInTransitQuantity(),
                 stock.getSafetyStock(),
                 stock.getVersion() == null ? 0L : stock.getVersion());
+    }
+
+    private static boolean canTransition(
+            InventoryReservationStatus current, InventoryReservationStatus next) {
+        if (current == next) {
+            return true;
+        }
+        return switch (current) {
+            case RESERVED -> next == InventoryReservationStatus.RELEASED
+                    || next == InventoryReservationStatus.EXPIRED
+                    || next == InventoryReservationStatus.DEDUCTED;
+            case EXPIRED, RELEASED -> next == InventoryReservationStatus.RESERVED;
+            case DEDUCTED -> false;
+        };
     }
 
     private static InventoryReservation toDomain(InventoryReservationEntity entity) {

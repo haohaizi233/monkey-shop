@@ -111,9 +111,22 @@ public class InventoryApplicationService implements InventoryReservationLifecycl
             String fingerprint = fingerprint(
                     request, reservationKey, province, existing.get().warehouseId());
             requireMatchingReservation(existing.get(), fingerprint);
-            return toReservationResponse(
-                    existing.get(),
-                    findStock(existing.get().skuId(), existing.get().warehouseId()));
+            if (InventoryReservationStatus.RESERVED.equals(existing.get().status())) {
+                return toReservationResponse(
+                        existing.get(),
+                        findStock(existing.get().skuId(), existing.get().warehouseId()));
+            }
+            if (InventoryReservationStatus.DEDUCTED.equals(existing.get().status())) {
+                throw new BusinessException(ErrorCode.CONFLICT, "Reservation was already deducted");
+            }
+            if (!existing.get().holdReleased()) {
+                throw new BusinessException(
+                        ErrorCode.CONFLICT, "Reservation cannot be renewed from " + existing.get().status());
+            }
+            return lockManager.withStockLock(
+                    existing.get().skuId(),
+                    existing.get().warehouseId(),
+                    () -> renewReleasedReservation(existing.get(), fingerprint));
         }
         WarehouseStock stock = selectStock(request.skuId(), request.warehouseId(), province, request.quantity());
         String fingerprint = fingerprint(request, reservationKey, province, stock.warehouseId());
@@ -157,6 +170,10 @@ public class InventoryApplicationService implements InventoryReservationLifecycl
         if (InventoryReservationStatus.DEDUCTED.equals(reservation.status())) {
             return toReservationResponse(reservation, findStock(reservation.skuId(), reservation.warehouseId()));
         }
+        if (reservation.holdReleased()) {
+            return lockManager.withStockLock(
+                    reservation.skuId(), reservation.warehouseId(), () -> deductReleasedReservation(reservation));
+        }
         if (!InventoryReservationStatus.RESERVED.equals(reservation.status())) {
             throw new BusinessException(
                     ErrorCode.CONFLICT, "Reservation cannot be deducted from " + reservation.status());
@@ -165,6 +182,9 @@ public class InventoryApplicationService implements InventoryReservationLifecycl
             InventoryReservation current = requireReservation(reservation.reservationKey());
             if (InventoryReservationStatus.DEDUCTED.equals(current.status())) {
                 return toReservationResponse(current, findStock(current.skuId(), current.warehouseId()));
+            }
+            if (current.holdReleased()) {
+                return reacquireAndDeduct(current);
             }
             if (!InventoryReservationStatus.RESERVED.equals(current.status())) {
                 throw new BusinessException(
@@ -183,6 +203,67 @@ public class InventoryApplicationService implements InventoryReservationLifecycl
     @Transactional
     public void deductReservation(String reservationKey) {
         deduct(reservationKey);
+    }
+
+    private InventoryReservationResponseDto renewReleasedReservation(
+            InventoryReservation reservation, String fingerprint) {
+        InventoryReservation current = requireReservation(reservation.reservationKey());
+        requireMatchingReservation(current, fingerprint);
+        if (current.activeAt(LocalDateTime.now(clock))) {
+            return toReservationResponse(current, findStock(current.skuId(), current.warehouseId()));
+        }
+        if (InventoryReservationStatus.DEDUCTED.equals(current.status())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Reservation was already deducted");
+        }
+        if (!current.holdReleased()) {
+            throw new BusinessException(
+                    ErrorCode.CONFLICT, "Reservation cannot be renewed from " + current.status());
+        }
+        InventoryReservation renewed = reacquire(current);
+        return toReservationResponse(renewed, findStock(renewed.skuId(), renewed.warehouseId()));
+    }
+
+    private InventoryReservationResponseDto deductReleasedReservation(InventoryReservation reservation) {
+        InventoryReservation current = requireReservation(reservation.reservationKey());
+        if (InventoryReservationStatus.DEDUCTED.equals(current.status())) {
+            return toReservationResponse(current, findStock(current.skuId(), current.warehouseId()));
+        }
+        if (InventoryReservationStatus.RESERVED.equals(current.status())) {
+            WarehouseStock stock = findStock(current.skuId(), current.warehouseId());
+            WarehouseStock savedStock = inventoryStore.saveStock(stock.deduct(current.quantity()));
+            InventoryReservation savedReservation = inventoryStore.saveReservation(current.deduct());
+            recordLedger(savedReservation, InventoryOperation.DEDUCT, "deduct:" + savedReservation.reservationKey());
+            audit(AuditService.INVENTORY_DEDUCTED, savedReservation, "quantity=" + savedReservation.quantity());
+            return toReservationResponse(savedReservation, savedStock);
+        }
+        if (!current.holdReleased()) {
+            throw new BusinessException(
+                    ErrorCode.CONFLICT, "Reservation cannot be deducted from " + current.status());
+        }
+        return reacquireAndDeduct(current);
+    }
+
+    private InventoryReservationResponseDto reacquireAndDeduct(InventoryReservation current) {
+        InventoryReservation renewed = reacquire(current);
+        WarehouseStock stock = findStock(renewed.skuId(), renewed.warehouseId());
+        WarehouseStock savedStock = inventoryStore.saveStock(stock.deduct(renewed.quantity()));
+        InventoryReservation savedReservation = inventoryStore.saveReservation(renewed.deduct());
+        recordLedger(savedReservation, InventoryOperation.DEDUCT, "deduct:" + savedReservation.reservationKey());
+        audit(AuditService.INVENTORY_DEDUCTED, savedReservation, "quantity=" + savedReservation.quantity());
+        return toReservationResponse(savedReservation, savedStock);
+    }
+
+    private InventoryReservation reacquire(InventoryReservation current) {
+        WarehouseStock stock = findStock(current.skuId(), current.warehouseId());
+        if (!stock.canReserve(current.quantity())) {
+            throw new BusinessException(ErrorCode.OUT_OF_STOCK, "Insufficient stock");
+        }
+        inventoryStore.saveStock(stock.reserve(current.quantity()));
+        InventoryReservation renewed = inventoryStore.saveReservation(
+                current.renew(LocalDateTime.now(clock).plus(reservationTtl)));
+        recordLedger(renewed, InventoryOperation.RESERVE, "reacquire:" + renewed.reservationKey());
+        audit(AuditService.INVENTORY_RESERVED, renewed, "reacquired=true,quantity=" + renewed.quantity());
+        return renewed;
     }
 
     @WithSpan("inventory.compensate")
